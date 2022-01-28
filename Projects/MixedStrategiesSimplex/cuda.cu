@@ -252,12 +252,14 @@ void GetResults(int minValueUp, int minValueDown, int p_RowSize, int p_ColSize, 
 	}
 
 	cout << "p = ";
-	PrintFraction(player1[0], player1[1]);
-	cout << endl;
-	for (int i = 2; i < (p_RowSize - 1) * 2; i += 2) {
-		cout << "    ";
-		PrintFraction(player1[i], player1[i + 1]);
+	if (p_RowSize > 1) {
+		PrintFraction(player1[0], player1[1]);
 		cout << endl;
+		for (int i = 2; i < (p_RowSize - 1) * 2; i += 2) {
+			cout << "    ";
+			PrintFraction(player1[i], player1[i + 1]);
+			cout << endl;
+		}
 	}
 
 	int* player2 = new int[(p_ColSize - 1) * 2];
@@ -274,12 +276,14 @@ void GetResults(int minValueUp, int minValueDown, int p_RowSize, int p_ColSize, 
 	}
 
 	cout << "q = ";
-	PrintFraction(player2[0], player2[1]);
-	cout << endl;
-	for (int i = 2; i < (p_ColSize - 1) * 2; i += 2) {
-		cout << "    ";
-		PrintFraction(player2[i], player2[i + 1]);
+	if (p_ColSize > 1) {
+		PrintFraction(player2[0], player2[1]);
 		cout << endl;
+		for (int i = 2; i < (p_ColSize - 1) * 2; i += 2) {
+			cout << "    ";
+			PrintFraction(player2[i], player2[i + 1]);
+			cout << endl;
+		}
 	}
 
 	DivideFraction(1, 1, vUp, vDown, vUp, vDown);
@@ -290,7 +294,38 @@ void GetResults(int minValueUp, int minValueDown, int p_RowSize, int p_ColSize, 
 	cout << endl;
 }
 
-int main()
+int FillSolution(ifstream& p_FileStream, int p_RowSize, int p_ColSize, int**& p_Array, int* p_MinUp, int* p_MinDown) {
+	for (int row = 0; row < p_RowSize; row++) {
+		for (int column = 0; column < p_ColSize * 2; column += 2) {
+			p_FileStream >> p_Array[row][column];
+
+			if (!p_FileStream) {
+				cout << "Error reading file for element " << row << "," << column / 2 << endl;
+				return 1;
+			}
+
+			if (p_FileStream.peek() == '/') {
+				p_FileStream.get();
+				p_FileStream >> p_Array[row][column + 1];
+			}
+			else
+				p_Array[row][column + 1] = 1.0;
+
+			if (!p_FileStream) {
+				cout << "Error reading file for element " << row << "," << column / 2 << endl;
+				return 1;
+			}
+
+			if (p_Array[row][column] / p_Array[row][column + 1] < *p_MinUp / *p_MinDown) {
+				*p_MinUp = p_Array[row][column];
+				*p_MinDown = p_Array[row][column + 1];
+			}
+		}
+	}
+	return 0;
+}
+
+int run_simplex(int argc, char** argv)
 {
 	ifstream fp("../Simplex.txt");
 	if (!fp) {
@@ -315,34 +350,8 @@ int main()
 		for (int i = colCount; i < colCount + rowCount; i++)
 			varsCol[i - colCount] = i + 1;
 
-		for (int row = 0; row < rowCount; row++) {
-			for (int column = 0; column < colCount * 2; column += 2) {
-				fp >> solution[row][column];
-
-				if (!fp) {
-					cout << "Error reading file for element " << row << "," << column/2 << endl;
-					return 1;
-				}
-
-				if (fp.peek() == '/') {
-					fp.get();
-					fp >> solution[row][column + 1];
-				}
-				else
-					solution[row][column + 1] = 1.0;
-
-				if (!fp) {
-					cout << "Error reading file for element " << row << "," << column/2 << endl;
-					return 1;
-				}
-
-				if (solution[row][column] / solution[row][column + 1] < minValueUp / minValueDown) {
-					minValueUp = solution[row][column];
-					minValueDown = solution[row][column + 1];
-				}
-			}
-		}
-
+		if (FillSolution(fp, rowCount, colCount, solution, &minValueUp, &minValueDown))
+			return 1;
 		PrintArray(rowCount, colCount, solution);
 		TransformArray(minValueUp, minValueDown, &rowCount, &colCount, solution);
 		PrintArray(rowCount, colCount, solution, varsRow, varsCol);
