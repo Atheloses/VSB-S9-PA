@@ -1,10 +1,12 @@
-﻿#include <iostream>
+﻿#include <cuda_runtime.h>
+#include <device_launch_parameters.h>
+#include <iostream>
 #include <fstream>
 #include <cmath>
 
 using namespace std;
 
-int GCD(int p_A, int p_B) {
+__host__ __device__ int GCD(int p_A, int p_B) {
 	int c = p_A % p_B;
 
 	while (c > 0)
@@ -17,7 +19,7 @@ int GCD(int p_A, int p_B) {
 	return p_B;
 }
 
-void ReduceFraction(int p_AUp, int p_ADown, int& p_CUp, int& p_CDown) {
+__host__ __device__ void ReduceFraction(int p_AUp, int p_ADown, int& p_CUp, int& p_CDown) {
 	int gcd = 1;
 
 	if (p_ADown != 0)
@@ -32,7 +34,7 @@ void ReduceFraction(int p_AUp, int p_ADown, int& p_CUp, int& p_CDown) {
 	}
 }
 
-void AddFraction(int p_AUp, int p_ADown, int p_BUp, int p_BDown, int& p_CUp, int& p_CDown) {
+__host__ __device__ void AddFraction(int p_AUp, int p_ADown, int p_BUp, int p_BDown, int& p_CUp, int& p_CDown) {
 	int outUp, outDown;
 
 	if (p_ADown == p_BDown) {
@@ -47,7 +49,7 @@ void AddFraction(int p_AUp, int p_ADown, int p_BUp, int p_BDown, int& p_CUp, int
 	ReduceFraction(outUp, outDown, p_CUp, p_CDown);
 }
 
-void SubtractFraction(int p_AUp, int p_ADown, int p_BUp, int p_BDown, int& p_CUp, int& p_CDown) {
+__host__ __device__ void SubtractFraction(int p_AUp, int p_ADown, int p_BUp, int p_BDown, int& p_CUp, int& p_CDown) {
 	int outUp, outDown;
 
 	if (p_ADown == p_BDown) {
@@ -62,8 +64,8 @@ void SubtractFraction(int p_AUp, int p_ADown, int p_BUp, int p_BDown, int& p_CUp
 	ReduceFraction(outUp, outDown, p_CUp, p_CDown);
 }
 
-void MultiplyFraction(int p_AUp, int p_ADown, int p_BUp, int p_BDown, int& p_CUp, int& p_CDown) {
-	int outUp, outDown, gcd;
+__host__ __device__ void MultiplyFraction(int p_AUp, int p_ADown, int p_BUp, int p_BDown, int& p_CUp, int& p_CDown) {
+	int outUp, outDown;
 
 	outDown = p_ADown * p_BDown;
 	outUp = p_AUp * p_BUp;
@@ -71,22 +73,22 @@ void MultiplyFraction(int p_AUp, int p_ADown, int p_BUp, int p_BDown, int& p_CUp
 	ReduceFraction(outUp, outDown, p_CUp, p_CDown);
 }
 
-void DivideFraction(int p_AUp, int p_ADown, int p_BUp, int p_BDown, int& p_CUp, int& p_CDown) {
-	int outUp, outDown, gcd;
+__host__ __device__ void DivideFraction(int p_AUp, int p_ADown, int p_BUp, int p_BDown, int& p_CUp, int& p_CDown) {
+	int outUp, outDown;
 
 	MultiplyFraction(p_AUp, p_ADown, p_BDown, p_BUp, outUp, outDown);
 
 	ReduceFraction(outUp, outDown, p_CUp, p_CDown);
 }
 
-void PrintFraction(int p_AUp, int p_ADown) {
+__host__ void PrintFraction(int p_AUp, int p_ADown) {
 	if (p_ADown == 1)
 		cout << p_AUp;
 	else
 		cout << p_AUp << '/' << p_ADown;
 }
 
-void PrintArray(int p_RowSize, int p_ColSize, int** p_Array, int* p_VarsRow = nullptr, int* p_VarsCol = nullptr) {
+__host__ void PrintArray(int p_RowSize, int p_ColSize, int* p_Array, int* p_VarsRow = nullptr, int* p_VarsCol = nullptr) {
 	cout << endl;
 	if (p_VarsRow != nullptr) {
 		cout << "  ";
@@ -112,132 +114,136 @@ void PrintArray(int p_RowSize, int p_ColSize, int** p_Array, int* p_VarsRow = nu
 		cout.precision(2);
 		for (int col = 0; col < p_ColSize * 2; col += 2) {
 			cout << '\t';
-			PrintFraction(p_Array[row][col], p_Array[row][col + 1]);
+			int pos = row * (p_ColSize * 2) + col;
+			PrintFraction(p_Array[pos], p_Array[pos + 1]);
 		}
 		cout.precision(5);
 		cout << endl;
 	}
 }
 
-void TransformArray(int p_MinValueUp, int p_MinValueDown, int* p_RowSize, int* p_ColSize, int**& p_Array) {
-	cout << "offseting by ";
-	PrintFraction(-p_MinValueUp, p_MinValueDown);
-	cout << endl;
+__host__ void TransformArray(int p_MinValueUp, int p_MinValueDown, int* p_RowSize, int* p_ColSize, int**& p_Array) {
+	int rowSize = (*p_RowSize) + 1;
+	int colSize = (*p_ColSize) + 1;
+	int** solution = new int* [rowSize];
+	for (int i = 0; i < rowSize; i++)
+		solution[i] = new int[colSize * 2];
 
-	*p_RowSize = *p_RowSize + 1;
-	*p_ColSize = *p_ColSize + 1;
-	int** solution = new int* [*p_RowSize];
-	for (int i = 0; i < *p_RowSize; ++i)
-		solution[i] = new int[*p_ColSize * 2];
-
-	for (int row = 0; row < *p_RowSize - 1; row++) {
-		for (int col = 0; col < (*p_ColSize - 1) * 2; col += 2) {
+	for (int row = 0; row < rowSize - 1; row++) {
+		for (int col = 0; col < (colSize - 1) * 2; col += 2) {
 			SubtractFraction(p_Array[row][col], p_Array[row][col + 1], p_MinValueUp, p_MinValueDown, solution[row][col], solution[row][col + 1]);
 		}
-		solution[row][*p_ColSize * 2 - 1] = 1;
-		solution[row][*p_ColSize * 2 - 2] = 1;
+		solution[row][colSize * 2 - 1] = 1;
+		solution[row][colSize * 2 - 2] = 1;
 	}
 
-	for (int col = 0; col < (*p_ColSize - 1) * 2; col += 2) {
-		solution[*p_RowSize - 1][col] = -1;
-		solution[*p_RowSize - 1][col + 1] = 1;
+	for (int col = 0; col < (colSize - 1) * 2; col += 2) {
+		solution[rowSize - 1][col] = -1;
+		solution[rowSize - 1][col + 1] = 1;
 	}
-	solution[*p_RowSize - 1][*p_ColSize * 2 - 1] = 1;
-	solution[*p_RowSize - 1][*p_ColSize * 2 - 2] = 0;
+	solution[rowSize - 1][colSize * 2 - 1] = 1;
+	solution[rowSize - 1][colSize * 2 - 2] = 0;
 
+	*p_RowSize = rowSize;
+	*p_ColSize = colSize;
 	p_Array = solution;
 }
 
-bool BlandsRule(int* p_Row, int* p_Col, int p_RowSize, int p_ColSize, int** p_Array, int* p_VarsRow, int* p_VarsCol) {
-	*p_Col = -1;
+__host__ bool BlandsRule(int* p_Row, int* p_Col, int p_RowSize, int p_ColSize, int* p_Array, int* p_VarsRow, int* p_VarsCol) {
+	int col = -1;
 	int smallestColVariable = -1;
-	for (int col = 0; col < (p_ColSize - 1) * 2; col += 2) {
-		if (p_Array[p_RowSize - 1][col] < 0 && (p_VarsRow[col / 2] < smallestColVariable || smallestColVariable < 0)) {
-			*p_Col = col / 2;
-			smallestColVariable = p_VarsRow[col / 2];
+	for (int i = 0; i < (p_ColSize - 1) * 2; i += 2) {
+		if (p_Array[(p_RowSize - 1) * p_ColSize * 2 + i] < 0 && (p_VarsRow[i / 2] < smallestColVariable || smallestColVariable < 0)) {
+			col = i / 2;
+			smallestColVariable = p_VarsRow[i / 2];
 		}
 	}
 
-	if (*p_Col < 0)
+	if (col < 0)
 		return false;
+	*p_Col = col;
 
 	int smallestRowVariable = -1, smallestRatioUp, smallestRatioDown;
-	*p_Row = 0;
+	int row = 0;
 	bool foundZeroRatio = false;
-	for (int row = 0; row < p_RowSize - 1; row++) {
-		if (p_Array[row][*p_Col * 2] <= 0)
+	for (int i = 0; i < p_RowSize - 1; i++) {
+		if (p_Array[i * p_ColSize * 2 + col * 2] <= 0)
 			continue;
 
-		if (p_Array[row][p_ColSize * 2 - 2] == 0 && (p_VarsCol[row / 2] < smallestRowVariable || smallestRowVariable < 0 || !foundZeroRatio)) {
-			*p_Row = row;
-			smallestRowVariable = p_VarsCol[row / 2];
+		if (p_Array[i * p_ColSize * 2 + p_ColSize * 2 - 2] == 0 && (p_VarsCol[i / 2] < smallestRowVariable || smallestRowVariable < 0 || !foundZeroRatio)) {
+			row = i;
+			smallestRowVariable = p_VarsCol[i / 2];
 			foundZeroRatio = true;
 		}
 		else if (!foundZeroRatio) {
 			if (smallestRowVariable < 0) {
-				DivideFraction(p_Array[row][p_ColSize * 2 - 2], p_Array[row][p_ColSize * 2 - 1], p_Array[row][*p_Col * 2], p_Array[row][*p_Col * 2 + 1], smallestRatioUp, smallestRatioDown);
-				*p_Row = row;
-				smallestRowVariable = p_VarsCol[row / 2];
+				DivideFraction(p_Array[i * p_ColSize * 2 + p_ColSize * 2 - 2], p_Array[i * p_ColSize * 2 + p_ColSize * 2 - 1], p_Array[i * p_ColSize * 2 + col * 2], p_Array[i * p_ColSize * 2 + col * 2 + 1], smallestRatioUp, smallestRatioDown);
+				row = i;
+				smallestRowVariable = p_VarsCol[i / 2];
 			}
 			else {
 				int currentRatioUp, currentRatioDown;
-				DivideFraction(p_Array[row][p_ColSize * 2 - 2], p_Array[row][p_ColSize * 2 - 1], p_Array[row][*p_Col * 2], p_Array[row][*p_Col * 2 + 1], currentRatioUp, currentRatioDown);
+				DivideFraction(p_Array[i * p_ColSize * 2 + p_ColSize * 2 - 2], p_Array[i * p_ColSize * 2 + p_ColSize * 2 - 1], p_Array[i * p_ColSize * 2 + col * 2], p_Array[i * p_ColSize * 2 + col * 2 + 1], currentRatioUp, currentRatioDown);
 				SubtractFraction(currentRatioUp, currentRatioDown, smallestRatioUp, smallestRatioDown, currentRatioUp, currentRatioDown);
 
 				if (currentRatioUp < 0) {
-					*p_Row = row;
-					smallestRowVariable = p_VarsCol[row / 2];
+					row = i;
+					smallestRowVariable = p_VarsCol[i / 2];
 					smallestRatioUp = currentRatioUp;
 					smallestRatioDown = currentRatioDown;
 				}
-				else if (currentRatioUp == 0 && p_VarsCol[row / 2] < smallestRowVariable) {
-					*p_Row = row;
-					smallestRowVariable = p_VarsCol[row / 2];
+				else if (currentRatioUp == 0 && p_VarsCol[i / 2] < smallestRowVariable) {
+					row = i;
+					smallestRowVariable = p_VarsCol[i / 2];
 					smallestRatioUp = currentRatioUp;
 					smallestRatioDown = currentRatioDown;
 				}
 			}
 		}
 	}
-
-	cout << "row: " << *p_Row << ", col: " << *p_Col << endl;
+	*p_Row = row;
+	cout << "row: " << row << ", col: " << col << endl;
 	return true;
 }
 
-void EnterVariable(int p_Row, int p_Col, int*& p_VarsRow, int*& p_VarsCol) {
+__host__ void EnterVariable(int p_Row, int p_Col, int*& p_VarsRow, int*& p_VarsCol) {
 	int temp = p_VarsRow[p_Col];
 	p_VarsRow[p_Col] = p_VarsCol[p_Row];
 	p_VarsCol[p_Row] = temp;
 }
 
-void  PivotArray(int p_Row, int p_Col, int p_RowSize, int p_ColSize, int**& p_Array) {
-	int** solution = new int* [p_RowSize];
+__global__ void KernelPivot(int p_Row, int p_Col, int p_RowSize, int p_ColSize, int p_In[], int p_Out[]) {
+	int row = blockDim.x * blockIdx.x + threadIdx.x;
+	int col = blockDim.y * blockIdx.y + threadIdx.y;
 
-	for (int row = 0; row < p_RowSize; row++) {
-		solution[row] = new int[p_ColSize * 2];
-		for (int col = 0; col < p_ColSize * 2; col += 2) {
-			if (p_Row == row && p_Col == col / 2)
-				DivideFraction(1, 1, p_Array[p_Row][p_Col * 2], p_Array[p_Row][p_Col * 2 + 1], solution[row][col], solution[row][col + 1]);
-			else if (p_Row == row)
-				DivideFraction(p_Array[row][col], p_Array[row][col + 1], p_Array[p_Row][p_Col * 2], p_Array[p_Row][p_Col * 2 + 1], solution[row][col], solution[row][col + 1]);
-			else if (p_Col == col / 2) {
-				DivideFraction(p_Array[row][col], p_Array[row][col + 1], p_Array[p_Row][p_Col * 2], p_Array[p_Row][p_Col * 2 + 1], solution[row][col], solution[row][col + 1]);
-				solution[row][col] *= -1;
-			}
-			else {
-				MultiplyFraction(p_Array[p_Row][col], p_Array[p_Row][col + 1], p_Array[row][p_Col * 2], p_Array[row][p_Col * 2 + 1], solution[row][col], solution[row][col + 1]);
-				DivideFraction(solution[row][col], solution[row][col + 1], p_Array[p_Row][p_Col * 2], p_Array[p_Row][p_Col * 2 + 1], solution[row][col], solution[row][col + 1]);
-				SubtractFraction(p_Array[row][col], p_Array[row][col + 1], solution[row][col], solution[row][col + 1], solution[row][col], solution[row][col + 1]);
-			}
-		}
+	if (row >= p_RowSize || col >= p_ColSize)
+		return;
+
+	int a = p_Row * (p_ColSize * 2) + p_Col * 2;
+	int b = row * (p_ColSize * 2) + col * 2;
+	int c = p_Row * (p_ColSize * 2) + col * 2;
+	int d = row * (p_ColSize * 2) + p_Col * 2;
+
+	if (p_Row == row && p_Col == col)
+		DivideFraction(1, 1, p_In[b], p_In[b + 1], p_Out[b], p_Out[b + 1]);
+	else if (p_Row == row)
+		DivideFraction(p_In[b], p_In[b + 1], p_In[a], p_In[a + 1], p_Out[b], p_Out[b + 1]);
+	else if (p_Col == col) {
+		DivideFraction(p_In[b], p_In[b + 1], p_In[a], p_In[a + 1], p_Out[b], p_Out[b + 1]);
+		p_Out[b] *= -1;
+	}
+	else {
+		MultiplyFraction(p_In[c], p_In[c + 1], p_In[d], p_In[d + 1], p_Out[b], p_Out[b + 1]);
+		DivideFraction(p_Out[b], p_Out[b + 1], p_In[a], p_In[a + 1], p_Out[b], p_Out[b + 1]);
+		SubtractFraction(p_In[b], p_In[b + 1], p_Out[b], p_Out[b + 1], p_Out[b], p_Out[b + 1]);
 	}
 
-	p_Array = solution;
+	// printf("[%d;%d] = %d/%d\n", row, col, p_Out[b], p_Out[b + 1]);
 }
 
-void GetResults(int minValueUp, int minValueDown, int p_RowSize, int p_ColSize, int** p_Array, int* p_VarsRow, int* p_VarsCol) {
-	int vUp = p_Array[p_RowSize - 1][p_ColSize * 2 - 2];
-	int vDown = p_Array[p_RowSize - 1][p_ColSize * 2 - 1];
+__host__ void GetResults(int minValueUp, int minValueDown, int p_RowSize, int p_ColSize, int* p_Array, int* p_VarsRow, int* p_VarsCol) {
+	int vUp = p_Array[(p_RowSize - 1) * p_ColSize * 2 + p_ColSize * 2 - 2];
+	int vDown = p_Array[(p_RowSize - 1) * p_ColSize * 2 + p_ColSize * 2 - 1];
 	int* player1 = new int[(p_RowSize - 1) * 2];
 	for (int i = 0; i < (p_RowSize - 1) * 2; i += 2) {
 		player1[i] = 0;
@@ -247,7 +253,7 @@ void GetResults(int minValueUp, int minValueDown, int p_RowSize, int p_ColSize, 
 	for (int i = 0; i < (p_ColSize - 1) * 2; i += 2) {
 		if (p_VarsRow[i / 2] >= p_ColSize) {
 			int pIndex = p_VarsRow[i / 2] - p_ColSize;
-			DivideFraction(p_Array[p_RowSize - 1][i], p_Array[p_RowSize - 1][i + 1], vUp, vDown, player1[pIndex * 2], player1[pIndex * 2 + 1]);
+			DivideFraction(p_Array[(p_RowSize - 1) * p_ColSize * 2 + i], p_Array[(p_RowSize - 1) * p_ColSize * 2 + i + 1], vUp, vDown, player1[pIndex * 2], player1[pIndex * 2 + 1]);
 		}
 	}
 
@@ -271,7 +277,7 @@ void GetResults(int minValueUp, int minValueDown, int p_RowSize, int p_ColSize, 
 	for (int i = 0; i < (p_RowSize - 1) * 2; i += 2) {
 		if (p_VarsCol[i / 2] < p_ColSize) {
 			int qIndex = p_VarsCol[i / 2] - 1;
-			DivideFraction(p_Array[i / 2][p_ColSize * 2 - 2], p_Array[i / 2][p_ColSize * 2 - 1], vUp, vDown, player2[qIndex * 2], player2[qIndex * 2 + 1]);
+			DivideFraction(p_Array[(i / 2) * p_ColSize * 2 + p_ColSize * 2 - 2], p_Array[(i / 2) * p_ColSize * 2 + p_ColSize * 2 - 1], vUp, vDown, player2[qIndex * 2], player2[qIndex * 2 + 1]);
 		}
 	}
 
@@ -294,7 +300,7 @@ void GetResults(int minValueUp, int minValueDown, int p_RowSize, int p_ColSize, 
 	cout << endl;
 }
 
-int FillSolution(ifstream& p_FileStream, int p_RowSize, int p_ColSize, int**& p_Array, int* p_MinUp, int* p_MinDown) {
+__host__ int FillSolution(ifstream& p_FileStream, int p_RowSize, int p_ColSize, int**& p_Array, int* p_MinUp, int* p_MinDown) {
 	for (int row = 0; row < p_RowSize; row++) {
 		for (int column = 0; column < p_ColSize * 2; column += 2) {
 			p_FileStream >> p_Array[row][column];
@@ -309,7 +315,7 @@ int FillSolution(ifstream& p_FileStream, int p_RowSize, int p_ColSize, int**& p_
 				p_FileStream >> p_Array[row][column + 1];
 			}
 			else
-				p_Array[row][column + 1] = 1.0;
+				p_Array[row][column + 1] = 1;
 
 			if (!p_FileStream) {
 				cout << "Error reading file for element " << row << "," << column / 2 << endl;
@@ -325,7 +331,12 @@ int FillSolution(ifstream& p_FileStream, int p_RowSize, int p_ColSize, int**& p_
 	return 0;
 }
 
-int run_simplex(int argc, char** argv)
+__host__ void ErrorCheck(cudaError_t cerr) {
+	if (cerr != cudaSuccess)
+		printf("CUDA Error [%d] - '%s'\n", __LINE__, cudaGetErrorString(cerr));
+}
+
+__host__ int run_simplex(int argc, char** argv)
 {
 	ifstream fp("../Simplex.txt");
 	if (!fp) {
@@ -352,18 +363,53 @@ int run_simplex(int argc, char** argv)
 
 		if (FillSolution(fp, rowCount, colCount, solution, &minValueUp, &minValueDown))
 			return 1;
-		PrintArray(rowCount, colCount, solution);
 		TransformArray(minValueUp, minValueDown, &rowCount, &colCount, solution);
-		PrintArray(rowCount, colCount, solution, varsRow, varsCol);
 
-		int col = -1, row = -1;
-		while (BlandsRule(&row, &col, rowCount, colCount, solution, varsRow, varsCol)) {
-			PivotArray(row, col, rowCount, colCount, solution);
-			EnterVariable(row, col, varsRow, varsCol);
-			PrintArray(rowCount, colCount, solution, varsRow, varsCol);
+		int blockCountRow = 1, blockCountCol = 1, threadCountRow, threadCountCol, maxThreads = 1024;
+		if (rowCount * colCount > maxThreads) {
+			blockCountRow = ceil(rowCount / ceil(sqrt(1024)));
+			blockCountCol = ceil(colCount / ceil(sqrt(1024)));
+			threadCountRow = ceil(1.0 * rowCount / blockCountRow);
+			threadCountCol = ceil(1.0 * colCount / blockCountCol);
+		}
+		else {
+			threadCountRow = rowCount;
+			threadCountCol = colCount;
 		}
 
-		GetResults(minValueUp, minValueDown, rowCount, colCount, solution, varsRow, varsCol);
+		dim3 dimGrid(blockCountRow, blockCountCol);
+		dim3 dimBlock(threadCountRow, threadCountCol);
+		cout << "blocks [" << blockCountRow << "," << blockCountCol << "] threads [" << threadCountRow << "," << threadCountCol << "]" << endl;
+
+		int arraySize = rowCount * colCount * 2;
+		int* arrayOutputP;
+		int* arrayOutput = (int*)malloc(arraySize * sizeof(int));
+		ErrorCheck(cudaMalloc(&arrayOutputP, arraySize * sizeof(int)));
+
+		int* arrayInputP;
+		int* arrayInput = (int*)malloc(arraySize * sizeof(int));
+		for (int i = 0; i < arraySize; i++) {
+			arrayOutput[i] = arrayInput[i] = solution[i / (colCount * 2)][i % (colCount * 2)];
+		}
+		ErrorCheck(cudaMalloc(&arrayInputP, arraySize * sizeof(int)));
+		ErrorCheck(cudaMemcpy(arrayInputP, arrayInput, arraySize * sizeof(int), cudaMemcpyHostToDevice));
+
+
+		PrintArray(rowCount, colCount, arrayInput, varsRow, varsCol);
+
+		int col = -1, row = -1;
+		while (BlandsRule(&row, &col, rowCount, colCount, arrayOutput, varsRow, varsCol)) {
+			KernelPivot << <dimGrid, dimBlock >> > (row, col, rowCount, colCount, arrayInputP, arrayOutputP);
+			EnterVariable(row, col, varsRow, varsCol);
+			ErrorCheck(cudaMemcpy(arrayOutput, arrayOutputP, arraySize * sizeof(int), cudaMemcpyDeviceToHost));
+			PrintArray(rowCount, colCount, arrayOutput, varsRow, varsCol);
+
+			int* temp = arrayInputP;
+			arrayInputP = arrayOutputP;
+			arrayOutputP = temp;
+		}
+
+		GetResults(minValueUp, minValueDown, rowCount, colCount, arrayOutput, varsRow, varsCol);
 		cout << "-----" << endl;
 	}
 
